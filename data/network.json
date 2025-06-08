@@ -1,0 +1,52 @@
+{
+  "network": {
+    "nodes": [
+      {
+        "id": "web-server",
+        "type": "Server",
+        "criticality": "High",
+        "vulnerabilities": ["DDoS", "SQL_Injection", "XSS"],
+        "value": 8,
+        "connections": ["database", "load-balancer"]
+      },
+      {
+        "id": "database",
+        "type": "Database",
+        "criticality": "Critical",
+        "vulnerabilities": ["SQL_Injection", "Credential_Theft"],
+        "value": 10,
+        "connections": ["web-server", "internal-api"]
+      },
+      {
+        "id": "load-balancer",
+        "type": "Network",
+        "criticality": "Medium",
+        "vulnerabilities": ["DDoS"],
+        "value": 6,
+        "connections": ["web-server"]
+      },
+      {
+        "id": "internal-api",
+        "type": "Service",
+        "criticality": "Medium",
+        "vulnerabilities": ["XSS", "Phishing"],
+        "value": 7,
+        "connections": ["database"]
+      }
+    ],
+    "traffic_patterns": {
+      "normal": {
+        "inbound": 1200,
+        "outbound": 800
+      },
+      "under_attack": {
+        "inbound": 5000,
+        "outbound": 300
+      }
+    },
+    "security_zones": {
+      "dmz": ["web-server", "load-balancer"],
+      "internal": ["database", "internal-api"]
+    }
+  }
+}

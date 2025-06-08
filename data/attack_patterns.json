@@ -1,0 +1,137 @@
+{
+  "attacks": [
+    {
+      "id": 1,
+      "name": "Phishing",
+      "type": "Social Engineering",
+      "cost": 1,
+      "base_damage": 1.5,
+      "success_rate": 0.55,
+      "detection_rates": {
+        "Firewall": 0.25,
+        "IDS": 0.55,
+        "SIEM": 0.6,
+        "EDR": 0.5,
+        "WAF": 0.15
+      },
+      "mitigation_cost": 0.8,
+      "historical_frequency": 0.4,
+      "targets": ["Employees", "Credentials"],
+      "complexity": "Low"
+    },
+    {
+      "id": 2,
+      "name": "DDoS",
+      "type": "Network Flood",
+      "cost": 3,
+      "base_damage": 2.5,
+      "success_rate": 0.85,
+      "detection_rates": {
+        "Firewall": 0.7,
+        "IDS": 0.8,
+        "SIEM": 0.75,
+        "EDR": 0.3,
+        "WAF": 0.65
+      },
+      "mitigation_cost": 1.2,
+      "historical_frequency": 0.3,
+      "targets": ["Network Bandwidth", "Servers"],
+      "complexity": "Medium"
+    },
+    {
+      "id": 3,
+      "name": "SQL Injection",
+      "type": "Application Attack",
+      "cost": 2,
+      "base_damage": 2.0,
+      "success_rate": 0.7,
+      "detection_rates": {
+        "Firewall": 0.3,
+        "IDS": 0.6,
+        "SIEM": 0.65,
+        "EDR": 0.4,
+        "WAF": 0.85
+      },
+      "mitigation_cost": 1.0,
+      "historical_frequency": 0.25,
+      "targets": ["Databases", "Web Applications"],
+      "complexity": "High"
+    },
+    {
+      "id": 4,
+      "name": "Zero-Day Exploit",
+      "type": "Vulnerability",
+      "cost": 4,
+      "base_damage": 3.0,
+      "success_rate": 0.95,
+      "detection_rates": {
+        "Firewall": 0.1,
+        "IDS": 0.2,
+        "SIEM": 0.35,
+        "EDR": 0.45,
+        "WAF": 0.3
+      },
+      "mitigation_cost": 1.5,
+      "historical_frequency": 0.15,
+      "targets": ["Operating Systems", "Critical Software"],
+      "complexity": "Very High"
+    },
+    {
+      "id": 5,
+      "name": "Ransomware",
+      "type": "Malware",
+      "cost": 3,
+      "base_damage": 2.8,
+      "success_rate": 0.75,
+      "detection_rates": {
+        "Firewall": 0.4,
+        "IDS": 0.65,
+        "SIEM": 0.7,
+        "EDR": 0.85,
+        "WAF": 0.4
+      },
+      "mitigation_cost": 1.3,
+      "historical_frequency": 0.35,
+      "targets": ["Files", "Databases"],
+      "complexity": "Medium"
+    },
+    {
+      "id": 6,
+      "name": "Man-in-the-Middle",
+      "type": "Interception",
+      "cost": 2,
+      "base_damage": 2.2,
+      "success_rate": 0.65,
+      "detection_rates": {
+        "Firewall": 0.5,
+        "IDS": 0.7,
+        "SIEM": 0.8,
+        "EDR": 0.5,
+        "WAF": 0.7
+      },
+      "mitigation_cost": 1.0,
+      "historical_frequency": 0.2,
+      "targets": ["Communications", "Credentials"],
+      "complexity": "High"
+    },
+    {
+      "id": 7,
+      "name": "Credential Stuffing",
+      "type": "Brute Force",
+      "cost": 1,
+      "base_damage": 1.8,
+      "success_rate": 0.6,
+      "detection_rates": {
+        "Firewall": 0.35,
+        "IDS": 0.5,
+        "SIEM": 0.65,
+        "EDR": 0.6,
+        "WAF": 0.45
+      },
+      "mitigation_cost": 0.9,
+      "historical_frequency": 0.3,
+      "targets": ["Accounts", "Web Applications"],
+      "complexity": "Medium"
+    }
+  ]
+}

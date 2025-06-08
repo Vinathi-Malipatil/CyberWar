@@ -1,0 +1,104 @@
+{
+  "defenses": [
+    {
+      "id": 1,
+      "type": "Firewall",
+      "name": "Next-Gen Firewall",
+      "cost": 2,
+      "security_boost": 1.1,
+      "coverage": ["Network", "Application"],
+      "false_positive_rate": 0.15,
+      "maintenance_cost": 0.3,
+      "response_time": 0.5,
+      "effectiveness": {
+        "Phishing": 0.3,
+        "DDoS": 0.7,
+        "SQL_Injection": 0.4,
+        "Zero-Day Exploit": 0.2,
+        "Ransomware": 0.5,
+        "Man-in-the-Middle": 0.6,
+        "Credential Stuffing": 0.4
+      }
+    },
+    {
+      "id": 2,
+      "type": "IDS",
+      "name": "Intrusion Detection System",
+      "cost": 1,
+      "security_boost": 0.85,
+      "coverage": ["Network", "Host"],
+      "false_positive_rate": 0.25,
+      "maintenance_cost": 0.4,
+      "response_time": 0.3,
+      "effectiveness": {
+        "Phishing": 0.55,
+        "DDoS": 0.8,
+        "SQL_Injection": 0.6,
+        "Zero-Day Exploit": 0.3,
+        "Ransomware": 0.65,
+        "Man-in-the-Middle": 0.7,
+        "Credential Stuffing": 0.5
+      }
+    },
+    {
+      "id": 3,
+      "type": "SIEM",
+      "name": "Security Information and Event Management",
+      "cost": 3,
+      "security_boost": 1.15,
+      "coverage": ["Network", "Host", "Application", "User"],
+      "false_positive_rate": 0.2,
+      "maintenance_cost": 0.6,
+      "response_time": 0.2,
+      "effectiveness": {
+        "Phishing": 0.7,
+        "DDoS": 0.85,
+        "SQL_Injection": 0.7,
+        "Zero-Day Exploit": 0.4,
+        "Ransomware": 0.75,
+        "Man-in-the-Middle": 0.8,
+        "Credential Stuffing": 0.65
+      }
+    },
+    {
+      "id": 4,
+      "type": "EDR",
+      "name": "Endpoint Detection and Response",
+      "cost": 2,
+      "security_boost": 1.05,
+      "coverage": ["Host"],
+      "false_positive_rate": 0.18,
+      "maintenance_cost": 0.4,
+      "response_time": 0.15,
+      "effectiveness": {
+        "Phishing": 0.6,
+        "DDoS": 0.4,
+        "SQL_Injection": 0.5,
+        "Zero-Day Exploit": 0.45,
+        "Ransomware": 0.85,
+        "Man-in-the-Middle": 0.5,
+        "Credential Stuffing": 0.6
+      }
+    },
+    {
+      "id": 5,
+      "type": "WAF",
+      "name": "Web Application Firewall",
+      "cost": 2,
+      "security_boost": 1.0,
+      "coverage": ["Application"],
+      "false_positive_rate": 0.22,
+      "maintenance_cost": 0.35,
+      "response_time": 0.25,
+      "effectiveness": {
+        "Phishing": 0.2,
+        "DDoS": 0.6,
+        "SQL_Injection": 0.85,
+        "Zero-Day Exploit": 0.3,
+        "Ransomware": 0.4,
+        "Man-in-the-Middle": 0.7,
+        "Credential Stuffing": 0.45
+      }
+    }
+  ]
+}
