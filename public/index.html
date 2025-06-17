@@ -30,6 +30,22 @@
             </div>
         </div>
 
+        <!-- Win Probability Display -->
+        <div id="win-probability" class="win-probability">
+            <h3>Win Probability</h3>
+            <div class="probability-bars">
+                <div class="probability-bar attacker-bar">
+                    <span>Attacker: <span id="attacker-win-chance">0%</span></span>
+                </div>
+                <div class="probability-bar defender-bar">
+                    <span>Defender: <span id="defender-win-chance">0%</span></span>
+                </div>
+            </div>
+            <div class="confidence">
+                Confidence: <span id="confidence">-</span>
+            </div>
+        </div>
+
         <div class="game-panel">
             <div class="controls">
                 <h3>Attacker Actions</h3>
@@ -55,10 +71,6 @@
             </div>
         </div>
     </div>
-    <div id="ml-status">
-  <div>AI Analysis: <span id="ml-confidence">-</span></div>
-  <div id="ml-recommendation"></div>
-</div>
 
     <script src="script.js"></script>
 </body>

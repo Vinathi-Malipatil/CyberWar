@@ -1,418 +1,591 @@
-// server.js - Complete structure with Attack Predictor
-
 const express = require('express');
+const fs = require('fs');
 const path = require('path');
-const cors = require('cors');
-
-// Initialize Express app
 const app = express();
-const PORT = process.env.PORT || 3000;
-
-// Middleware
-app.use(cors());
-app.use(express.json());
-app.use(express.static('public'));
 
 // Game Configuration
 const CONFIG = {
-  MAX_SECURITY: 100,
+  MAX_SECURITY: 10,
   MIN_SECURITY: 0,
-  CRITICAL_NODE_PENALTY: 0.8,
-  INITIAL_ATTACKER_RESOURCES: 20,
-  INITIAL_DEFENDER_RESOURCES: 15
+  INITIAL_RESOURCES: 15,
+  TURN_RESOURCES: {
+    attacker: 2,
+    defender: 3
+  },
+  SECURITY_DECAY: 0.3,
+  CRITICAL_NODE_PENALTY: 0.9,
+  MINIMAX_DEPTH: 3
 };
 
-// Attack Patterns
-const attackPatterns = [
-  { id: 'dos', name: 'DDoS Attack', type: 'network', cost: 3, success_rate: 0.7 },
-  { id: 'sql', name: 'SQL Injection', type: 'application', cost: 4, success_rate: 0.6 },
-  { id: 'phishing', name: 'Phishing Campaign', type: 'social', cost: 2, success_rate: 0.8 },
-  { id: 'malware', name: 'Malware Deploy', type: 'system', cost: 5, success_rate: 0.5 },
-  { id: 'mitm', name: 'Man-in-Middle', type: 'network', cost: 6, success_rate: 0.4 },
-  { id: 'brute', name: 'Brute Force', type: 'authentication', cost: 3, success_rate: 0.6 },
-  { id: 'zero_day', name: 'Zero-Day Exploit', type: 'system', cost: 8, success_rate: 0.9 }
-];
-
-// AttackPredictor Class Definition
-class AttackPredictor {
-  constructor() {
-    this.attackHistory = [];
-    this.transitionMatrix = new Map();
-    this.attackFrequency = new Map();
-    this.lastUpdateTime = Date.now();
-  }
-
-  updateHistory(attack, gameState) {
-    const attackRecord = {
-      id: attack.id,
-      name: attack.name,
-      type: attack.type,
-      cost: attack.cost,
-      successRate: attack.success_rate,
-      timestamp: Date.now(),
-      gameContext: {
-        turn: gameState.turn,
-        securityLevel: gameState.network.security_level,
-        attackerResources: gameState.attacker.resources,
-        availableAttacks: [...gameState.attacker.availableAttacks]
-      }
-    };
-
-    this.attackHistory.push(attackRecord);
-    this.updateTransitionMatrix();
-    this.updateFrequencyMap();
-    this.lastUpdateTime = Date.now();
-
-    if (this.attackHistory.length > 50) {
-      this.attackHistory.shift();
-    }
-  }
-
-  updateTransitionMatrix() {
-    this.transitionMatrix.clear();
-    
-    for (let i = 1; i < this.attackHistory.length; i++) {
-      const prevAttack = this.attackHistory[i - 1];
-      const currentAttack = this.attackHistory[i];
-      
-      const key = `${prevAttack.type}->${currentAttack.type}`;
-      this.transitionMatrix.set(key, (this.transitionMatrix.get(key) || 0) + 1);
-    }
-  }
-
-  updateFrequencyMap() {
-    this.attackFrequency.clear();
-    
-    this.attackHistory.forEach(attack => {
-      this.attackFrequency.set(attack.type, (this.attackFrequency.get(attack.type) || 0) + 1);
-    });
-  }
-
-  predictNextAttack(availableAttacks, gameState) {
-    if (this.attackHistory.length === 0) {
-      return availableAttacks.map(attack => ({
-        attack,
-        probability: 1 / availableAttacks.length,
-        confidence: 'Low',
-        factors: {
-          transition: 0,
-          frequency: 0,
-          resource: 1 / availableAttacks.length,
-          efficiency: attack.success_rate || 0.5,
-          recency: 0,
-          security: this.getSecurityFactor(attack, gameState)
-        }
-      }));
-    }
-
-    const predictions = availableAttacks.map(attack => {
-      const factors = this.calculatePredictionFactors(attack, gameState);
-      const probability = this.calculateOverallProbability(factors);
-      const confidence = this.calculateConfidence(probability, factors);
-
-      return {
-        attack,
-        probability,
-        confidence,
-        factors
-      };
-    });
-
-    const totalProb = predictions.reduce((sum, pred) => sum + pred.probability, 0);
-    if (totalProb > 0) {
-      predictions.forEach(pred => {
-        pred.probability = pred.probability / totalProb;
-      });
-    }
-
-    return predictions.sort((a, b) => b.probability - a.probability);
-  }
-
-  calculatePredictionFactors(attack, gameState) {
+// Win Probability Calculation
+function calculateWinProbability(gameState) {
+  if (gameState.gameOver) {
     return {
-      transition: this.getTransitionProbability(attack),
-      frequency: this.getFrequencyScore(attack),
-      resource: this.getResourceScore(attack, gameState),
-      efficiency: this.getEfficiencyScore(attack, gameState),
-      recency: this.getRecencyScore(attack),
-      security: this.getSecurityFactor(attack, gameState)
-    };
-  }
-
-  getTransitionProbability(attack) {
-    if (this.attackHistory.length === 0) return 0;
-    
-    const lastAttack = this.attackHistory[this.attackHistory.length - 1];
-    const transitionKey = `${lastAttack.type}->${attack.type}`;
-    const transitionCount = this.transitionMatrix.get(transitionKey) || 0;
-    
-    const totalFromLastType = Array.from(this.transitionMatrix.entries())
-      .filter(([key]) => key.startsWith(`${lastAttack.type}->`))
-      .reduce((sum, [, count]) => sum + count, 0);
-    
-    return totalFromLastType > 0 ? transitionCount / totalFromLastType : 0;
-  }
-
-  getFrequencyScore(attack) {
-    const attackCount = this.attackFrequency.get(attack.type) || 0;
-    const totalAttacks = this.attackHistory.length;
-    return totalAttacks > 0 ? attackCount / totalAttacks : 0;
-  }
-
-  getResourceScore(attack, gameState) {
-    const resourceRatio = gameState.attacker.resources / attack.cost;
-    return Math.min(resourceRatio / 5, 1);
-  }
-
-  getEfficiencyScore(attack, gameState) {
-    const baseEfficiency = attack.success_rate || 0.5;
-    
-    const vulnerableNodes = gameState.network.nodes.filter(n => 
-      n.vulnerabilities && n.vulnerabilities.includes(attack.type) && !n.protected
-    );
-    
-    const vulnerabilityBonus = vulnerableNodes.length * 0.1;
-    return Math.min(baseEfficiency + vulnerabilityBonus, 1);
-  }
-
-  getRecencyScore(attack) {
-    const recentAttacks = this.attackHistory.slice(-3);
-    const recentCount = recentAttacks.filter(a => a.type === attack.type).length;
-    return Math.max(0, 1 - (recentCount * 0.3));
-  }
-
-  getSecurityFactor(attack, gameState) {
-    const securityLevel = gameState.network.security_level;
-    const maxSecurity = 100;
-    
-    const securityRatio = securityLevel / maxSecurity;
-    const costFactor = attack.cost / 10;
-    
-    return securityRatio * costFactor;
-  }
-
-  calculateOverallProbability(factors) {
-    const weights = {
-      transition: 0.25,
-      frequency: 0.20,
-      resource: 0.15,
-      efficiency: 0.20,
-      recency: 0.10,
-      security: 0.10
-    };
-
-    return Object.entries(factors).reduce((sum, [factor, value]) => {
-      return sum + (value * (weights[factor] || 0));
-    }, 0);
-  }
-
-  calculateConfidence(probability, factors) {
-    const avgFactor = Object.values(factors).reduce((sum, val) => sum + val, 0) / Object.keys(factors).length;
-    const confidenceScore = (probability + avgFactor) / 2;
-
-    if (confidenceScore >= 0.8) return 'Very High';
-    if (confidenceScore >= 0.6) return 'High';
-    if (confidenceScore >= 0.4) return 'Medium';
-    if (confidenceScore >= 0.2) return 'Low';
-    return 'Very Low';
-  }
-
-  getPredictionSummary(availableAttacks, gameState) {
-    const predictions = this.predictNextAttack(availableAttacks, gameState);
-    
-    if (predictions.length === 0) {
-      return {
-        predictions: [],
-        summary: {
-          mostLikely: 'No attacks available',
-          confidence: 'N/A',
-          totalAttacks: this.attackHistory.length,
-          recentPattern: 'No pattern detected'
-        }
-      };
-    }
-
-    const topPrediction = predictions[0];
-    const recentPattern = this.getRecentPattern();
-
-    return {
-      predictions: predictions.map(pred => ({
-        attackId: pred.attack.id,
-        attackName: pred.attack.name,
-        attackType: pred.attack.type,
-        probability: Math.round(pred.probability * 100),
-        confidence: pred.confidence,
-        factors: pred.factors
-      })),
-      summary: {
-        mostLikely: topPrediction.attack.name,
-        confidence: topPrediction.confidence,
-        totalAttacks: this.attackHistory.length,
-        recentPattern: recentPattern
+      attacker: gameState.winner === 'attacker' ? 100 : 0,
+      defender: gameState.winner === 'defender' ? 100 : 0,
+      factors: {
+        gameOver: true,
+        winner: gameState.winner
       }
     };
   }
 
-  getRecentPattern() {
-    if (this.attackHistory.length < 2) {
-      return 'Insufficient data';
-    }
+  // Base factors for probability calculation
+  let attackerScore = 0;
+  let defenderScore = 0;
+  const factors = {};
 
-    const recentAttacks = this.attackHistory.slice(-5);
-    const types = recentAttacks.map(a => a.type);
+  // 1. Security Level Factor (35% weight)
+  const securityFactor = gameState.network.security_level / CONFIG.MAX_SECURITY;
+  const securityWeight = 35;
+  defenderScore += securityFactor * securityWeight;
+  attackerScore += (1 - securityFactor) * securityWeight;
+  factors.securityLevel = {
+    current: gameState.network.security_level.toFixed(2),
+    defenderAdvantage: (securityFactor * 100).toFixed(1) + '%'
+  };
+
+  // 2. Resource Advantage (25% weight)
+  const totalResources = gameState.attacker.resources + gameState.defender.resources;
+  if (totalResources > 0) {
+    const attackerResourceRatio = gameState.attacker.resources / totalResources;
+    const defenderResourceRatio = gameState.defender.resources / totalResources;
+    const resourceWeight = 25;
     
-    const uniqueTypes = new Set(types);
+    attackerScore += attackerResourceRatio * resourceWeight;
+    defenderScore += defenderResourceRatio * resourceWeight;
+    factors.resources = {
+      attacker: gameState.attacker.resources,
+      defender: gameState.defender.resources,
+      advantage: gameState.defender.resources > gameState.attacker.resources ? 'Defender' : 'Attacker'
+    };
+  }
+
+  // 3. Critical Node Status (20% weight)
+  const criticalNodes = gameState.network.nodes.filter(n => n.criticality === 'Critical');
+  const protectedCritical = criticalNodes.filter(n => n.protected).length;
+  const attackedCritical = criticalNodes.filter(n => n.attacked).length;
+  const criticalWeight = 20;
+  
+  if (criticalNodes.length > 0) {
+    const protectionRatio = protectedCritical / criticalNodes.length;
+    const attackRatio = attackedCritical / criticalNodes.length;
     
-    if (uniqueTypes.size === 1) {
-      return `Repeating ${types[0]} attacks`;
-    } else if (uniqueTypes.size === types.length) {
-      return 'Diverse attack strategy';
+    defenderScore += protectionRatio * criticalWeight;
+    attackerScore += attackRatio * criticalWeight;
+    factors.criticalNodes = {
+      total: criticalNodes.length,
+      protected: protectedCritical,
+      attacked: attackedCritical,
+      protectionRate: (protectionRatio * 100).toFixed(1) + '%'
+    };
+  }
+
+  // 4. Defense Coverage Analysis (10% weight)
+  const recentAttacks = gameState.attacker.attacks.slice(-3);
+  let coverageEffectiveness = 0;
+  
+  if (recentAttacks.length > 0) {
+    recentAttacks.forEach(attack => {
+      const bestDefenseEffectiveness = gameState.defender.defenses.reduce((max, defense) => {
+        const defData = defenseOptions.find(d => d.id === defense.id);
+        return Math.max(max, defData?.effectiveness?.[attack.type] || 0);
+      }, 0);
+      coverageEffectiveness += bestDefenseEffectiveness;
+    });
+    coverageEffectiveness /= recentAttacks.length;
+  }
+  
+  const coverageWeight = 10;
+  defenderScore += coverageEffectiveness * coverageWeight;
+  factors.defenseCoverage = {
+    effectiveness: (coverageEffectiveness * 100).toFixed(1) + '%',
+    recentAttacks: recentAttacks.length
+  };
+
+  // 5. Turn-based Momentum (10% weight)
+  const momentumWeight = 10;
+  if (gameState.turn > 0) {
+    // Recent security trend
+    const securityTrend = gameState.network.security_level > 4 ? 'improving' : 'declining';
+    if (securityTrend === 'improving') {
+      defenderScore += momentumWeight * 0.7;
     } else {
-      const mostCommon = this.getMostFrequentType(types);
-      return `Favoring ${mostCommon} attacks`;
+      attackerScore += momentumWeight * 0.7;
     }
-  }
-
-  getMostFrequentType(types) {
-    const frequency = {};
-    types.forEach(type => {
-      frequency[type] = (frequency[type] || 0) + 1;
-    });
-    
-    return Object.keys(frequency).reduce((a, b) => 
-      frequency[a] > frequency[b] ? a : b
-    );
-  }
-
-  getMostUsedAttackType() {
-    if (this.attackHistory.length === 0) return 'None';
-    
-    const typeCounts = {};
-    this.attackHistory.forEach(attack => {
-      typeCounts[attack.type] = (typeCounts[attack.type] || 0) + 1;
-    });
-    
-    return Object.keys(typeCounts).reduce((a, b) => 
-      typeCounts[a] > typeCounts[b] ? a : b
-    );
-  }
-
-  reset() {
-    this.attackHistory = [];
-    this.transitionMatrix.clear();
-    this.attackFrequency.clear();
-    this.lastUpdateTime = Date.now();
-  }
-
-  getStats() {
-    return {
-      totalAttacks: this.attackHistory.length,
-      uniqueAttackTypes: new Set(this.attackHistory.map(a => a.type)).size,
-      avgAttackCost: this.attackHistory.length > 0 ? 
-        this.attackHistory.reduce((sum, a) => sum + a.cost, 0) / this.attackHistory.length : 0,
-      mostUsedType: this.getMostUsedAttackType(),
-      transitionCount: this.transitionMatrix.size,
-      lastUpdate: this.lastUpdateTime
+    factors.momentum = {
+      trend: securityTrend,
+      turn: gameState.turn
     };
   }
+
+  // Normalize scores to probabilities
+  const totalScore = attackerScore + defenderScore;
+  let attackerProbability = totalScore > 0 ? (attackerScore / totalScore) * 100 : 50;
+  let defenderProbability = totalScore > 0 ? (defenderScore / totalScore) * 100 : 50;
+
+  // Apply critical thresholds
+  if (gameState.network.security_level <= 1) {
+    attackerProbability = Math.max(attackerProbability, 85);
+    defenderProbability = 100 - attackerProbability;
+  } else if (gameState.network.security_level >= 8) {
+    defenderProbability = Math.max(defenderProbability, 80);
+    attackerProbability = 100 - defenderProbability;
+  }
+
+  // Check for imminent threats
+  if (gameState.attacker.resources >= 10 && gameState.network.security_level <= 3) {
+    attackerProbability = Math.max(attackerProbability, 75);
+    defenderProbability = 100 - attackerProbability;
+  }
+
+  // Ensure probabilities sum to 100
+  const total = attackerProbability + defenderProbability;
+  if (total !== 100) {
+    attackerProbability = (attackerProbability / total) * 100;
+    defenderProbability = (defenderProbability / total) * 100;
+  }
+
+  return {
+    attacker: Math.round(attackerProbability * 10) / 10,
+    defender: Math.round(defenderProbability * 10) / 10,
+    factors: factors,
+    confidence: gameState.turn > 5 ? 'High' : gameState.turn > 2 ? 'Medium' : 'Low',
+    trend: attackerProbability > 50 ? 'Attacker Favored' : 'Defender Favored'
+  };
 }
 
-// Initialize the attack predictor
-const attackPredictor = new AttackPredictor();
+// Enhanced JSON Loader with Validation
+const loadJSONData = (filename) => {
+  try {
+    const filePath = path.join(__dirname, 'data', filename);
 
-// Game State (you'll need to add your existing game state structure here)
-let gameState = {
-  gameOver: false,
-  currentPlayer: 'attacker',
-  turn: 1,
-  attacker: {
-    resources: CONFIG.INITIAL_ATTACKER_RESOURCES,
-    availableAttacks: ['dos', 'sql', 'phishing', 'malware', 'brute'],
-    attacks: [],
-    lastMove: null
-  },
-  defender: {
-    resources: CONFIG.INITIAL_DEFENDER_RESOURCES,
-    defenses: [],
-    lastMove: null
-  },
-  network: {
-    security_level: CONFIG.MAX_SECURITY,
-    nodes: [
-      { name: 'Web Server', vulnerabilities: ['application', 'network'], protected: false, criticality: 'High' },
-      { name: 'Database', vulnerabilities: ['application', 'system'], protected: false, criticality: 'Critical' },
-      { name: 'User Accounts', vulnerabilities: ['social', 'authentication'], protected: false, criticality: 'Medium' }
-    ]
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`File not found: ${filename}`);
+    }
+
+    const rawData = fs.readFileSync(filePath, 'utf-8').trim();
+    if (!rawData) {
+      throw new Error(`Empty file: ${filename}`);
+    }
+
+    const parsedData = JSON.parse(rawData);
+    console.log(`✓ Successfully loaded ${filename}`);
+    return parsedData;
+  } catch (err) {
+    console.error(`✗ Error loading ${filename}:`, err.message);
+    process.exit(1);
   }
 };
 
-// MinimaxAI Class (add your existing AI implementation here)
+// Load Game Data
+console.log('\nLoading game data...');
+const gameData = {
+  attacks: loadJSONData('attack_patterns.json').attacks,
+  defenses: loadJSONData('defense_patterns.json').defenses,
+  network: loadJSONData('network.json').network,
+  threats: loadJSONData('threat_history.json')
+};
+
+const { attacks: attackPatterns, defenses: defenseOptions, network: networkConfig } = gameData;
+
+// Initialize Game State
+let gameState = {
+  turn: 0,
+  attacker: {
+    resources: CONFIG.INITIAL_RESOURCES,
+    lastMove: null,
+    attacks: [],
+    availableAttacks: attackPatterns.map(a => a.id)
+  },
+  defender: {
+    resources: CONFIG.INITIAL_RESOURCES,
+    lastMove: null,
+    defenses: [],
+    availableDefenses: defenseOptions.map(d => d.id)
+  },
+  network: {
+    security_level: 5,
+    nodes: networkConfig.nodes.map(node => ({
+      ...node,
+      protected: false,
+      attacked: false,
+      protections: node.protections || [],
+      vulnerabilities: node.vulnerabilities || []
+    })),
+    traffic: networkConfig.traffic_patterns.normal
+  },
+  gameOver: false,
+  winner: null,
+  currentPlayer: 'attacker'
+};
+
+// Deterministic Minimax AI Implementation
 class MinimaxAI {
-  constructor() {
-    this.maxDepth = 3;
+  constructor(depth = CONFIG.MINIMAX_DEPTH) {
+    this.depth = depth;
+    this.threatHistory = gameData.threats;
+    this.lastDefense = null;
+    this.defenseStreak = 0;
   }
 
-  updateGameState(newGameState) {
-    // Update AI with current game state
-    this.currentGameState = JSON.parse(JSON.stringify(newGameState));
+  evaluate(state) {
+    if (state.gameOver) {
+      return state.winner === 'defender' ? Infinity : -Infinity;
+    }
+
+    // Base security score (0-40 points)
+    let score = (state.network.security_level / CONFIG.MAX_SECURITY) * 40;
+    
+    // Resource advantage (up to 20 points)
+    const resourceDiff = state.defender.resources - state.attacker.resources;
+    score += Math.min(20, resourceDiff * 0.5);
+    
+    // Critical node protection (up to 20 points)
+    const criticalNodes = state.network.nodes.filter(n => n.criticality === 'Critical');
+    const protectedCritical = criticalNodes.filter(n => n.protected).length;
+    score += (protectedCritical / criticalNodes.length) * 20;
+    
+    // Vulnerability coverage (up to 20 points)
+    let coverageScore = 0;
+    state.defender.defenses.forEach(defense => {
+      const defData = defenseOptions.find(d => d.id === defense.id);
+      if (!defData) return;
+      
+      // Calculate coverage effectiveness based on recent attacks
+      const recentAttacks = state.attacker.attacks.slice(-3);
+      let attackCoverage = 0;
+      
+      recentAttacks.forEach(attack => {
+        if (defData.effectiveness[attack.type]) {
+          attackCoverage += defData.effectiveness[attack.type];
+        }
+      });
+      
+      coverageScore += attackCoverage * 5;
+    });
+    score += Math.min(20, coverageScore);
+    
+    // Defense variety bonus (up to 10 points)
+    const defenseTypes = new Set(state.defender.defenses.map(d => d.type));
+    score += defenseTypes.size * 2;
+    
+    // Recent attack pattern penalty
+    if (state.attacker.lastMove) {
+      const attackType = state.attacker.lastMove.type;
+      const defenseEffectiveness = state.defender.defenses.reduce((max, defense) => {
+        const defData = defenseOptions.find(d => d.id === defense.id);
+        return Math.max(max, defData?.effectiveness[attackType] || 0);
+      }, 0);
+      
+      score -= (1 - defenseEffectiveness) * 10;
+    }
+    
+    return score;
   }
 
-  // Add your existing AI methods here
-  // makeMove(), minimax(), evaluateGameState(), etc.
+  getBestMove(state) {
+    const validDefenses = defenseOptions.filter(d =>
+      state.defender.resources >= d.cost &&
+      state.defender.availableDefenses.includes(d.id)
+    );
+
+    if (validDefenses.length === 0) return null;
+
+    let bestScore = -Infinity;
+    let bestMoves = [];
+    let alpha = -Infinity;
+    let beta = Infinity;
+
+    // First pass: evaluate all defenses
+    for (const defense of validDefenses) {
+      const simulatedState = this.simulateMove(JSON.parse(JSON.stringify(state)), defense);
+      const score = this.minimax(simulatedState, this.depth - 1, false, alpha, beta);
+      
+      if (score > bestScore) {
+        bestScore = score;
+        bestMoves = [defense];
+        alpha = Math.max(alpha, bestScore);
+      } else if (score === bestScore) {
+        bestMoves.push(defense);
+      }
+      
+      if (beta <= alpha) break;
+    }
+
+    // Strategic selection from equally good defenses
+    if (bestMoves.length > 1) {
+      // Get recent attack types
+      const recentAttacks = state.attacker.attacks.slice(-3).map(a => a.type);
+      
+      // Score each defense based on recent attack coverage
+      const scoredDefenses = bestMoves.map(defense => {
+        let defenseScore = 0;
+        
+        // Coverage against recent attacks
+        recentAttacks.forEach(attackType => {
+          defenseScore += defense.effectiveness[attackType] || 0;
+        });
+        
+        // Variety bonus - prefer less used defense types
+        const defenseTypeCount = state.defender.defenses
+          .filter(d => d.type === defense.type).length;
+        defenseScore -= defenseTypeCount * 0.5;
+        
+        return { defense, score: defenseScore };
+      });
+      
+      // Sort by coverage score and select top
+      scoredDefenses.sort((a, b) => b.score - a.score);
+      return scoredDefenses[0].defense;
+    }
+    
+    return bestMoves[0];
+  }
+
+  getDefenseTypeCount(state, type) {
+    return state.defender.defenses.filter(d => {
+      const defData = defenseOptions.find(def => def.id === d.id);
+      return defData && defData.type === type;
+    }).length;
+  }
+
+  minimax(state, depth, isMaximizing, alpha, beta) {
+    if (depth === 0 || state.gameOver) {
+      return this.evaluate(state);
+    }
+
+    if (isMaximizing) {
+      let maxEval = -Infinity;
+      const validDefenses = defenseOptions.filter(d =>
+        state.defender.resources >= d.cost &&
+        state.defender.availableDefenses.includes(d.id)
+      );
+      
+      if (validDefenses.length === 0) {
+        return this.evaluate(state);
+      }
+      
+      for (const defense of validDefenses) {
+        const newState = this.simulateMove(JSON.parse(JSON.stringify(state)), defense);
+        const evaluation = this.minimax(newState, depth - 1, false, alpha, beta);
+        maxEval = Math.max(maxEval, evaluation);
+        alpha = Math.max(alpha, evaluation);
+        if (beta <= alpha) break;
+      }
+      return maxEval;
+    } else {
+      let minEval = Infinity;
+      const validAttacks = attackPatterns.filter(a =>
+        state.attacker.resources >= a.cost &&
+        state.attacker.availableAttacks.includes(a.id)
+      );
+      
+      if (validAttacks.length === 0) {
+        return this.evaluate(state);
+      }
+      
+      for (const attack of validAttacks) {
+        const newState = this.simulateMove(JSON.parse(JSON.stringify(state)), attack);
+        const evaluation = this.minimax(newState, depth - 1, true, alpha, beta);
+        minEval = Math.min(minEval, evaluation);
+        beta = Math.min(beta, evaluation);
+        if (beta <= alpha) break;
+      }
+      return minEval;
+    }
+  }
+
+  simulateMove(state, move) {
+    if (move.type) {
+      // Defense move
+      state.defender.resources -= move.cost || 0;
+      state.network.security_level = Math.min(
+        CONFIG.MAX_SECURITY,
+        state.network.security_level + (move.security_boost || 0)
+      );
+      
+      // Apply protection based on coverage
+      if (move.coverage && state.network.nodes) {
+        state.network.nodes.forEach(node => {
+          if (node.protections && move.coverage.some(cov => 
+            node.protections.includes(cov))) {
+            node.protected = true;
+            
+            // Special effects for certain defenses
+            if (move.type === 'EDR' && node.attacked) {
+              // EDR can recover some security from attacked nodes
+              state.network.security_level += 0.2;
+            }
+          }
+        });
+      }
+      
+      // Special effects for SIEM
+      if (move.type === 'SIEM') {
+        // SIEM improves detection of future attacks
+        state.defender.defenses.forEach(d => {
+          const defData = defenseOptions.find(def => def.id === d.id);
+          if (defData && (defData.type === 'IDS' || defData.type === 'Firewall')) {
+            // Create a new effectiveness object with boosted values
+            const boostedEffectiveness = {};
+            for (const [attackType, effectiveness] of Object.entries(defData.effectiveness)) {
+              boostedEffectiveness[attackType] = Math.min(1, effectiveness * 1.1);
+            }
+            // Update the defense data
+            d.effectiveness = boostedEffectiveness;
+          }
+        });
+      }
+      
+      state.defender.lastMove = move;
+      state.defender.defenses.push(move);
+      state.currentPlayer = 'attacker';
+    } else {
+      // Attack move
+      const attackData = attackPatterns.find(a => a.id === move.id);
+      if (!attackData) return state;
+
+      state.attacker.resources -= attackData.cost;
+
+      // Find vulnerable nodes safely
+      const targetNodes = state.network.nodes.filter(n => 
+        n.vulnerabilities && n.vulnerabilities.includes(attackData.type) && 
+        !n.protected
+      ) || [];
+      
+      const vulnerabilityModifier = targetNodes.length > 0 ? 
+        1.0 + (0.1 * targetNodes.length) : 1.0;
+
+      state.network.security_level = Math.max(
+        CONFIG.MIN_SECURITY,
+        state.network.security_level - (attackData.success_rate * vulnerabilityModifier)
+      );
+      
+      // Mark attacked nodes
+      targetNodes.forEach(node => {
+        node.attacked = true;
+        if (node.criticality === 'Critical') {
+          state.network.security_level *= CONFIG.CRITICAL_NODE_PENALTY;
+        }
+      });
+
+      state.attacker.lastMove = attackData;
+      state.attacker.attacks.push(attackData);
+      state.currentPlayer = 'defender';
+    }
+    
+    this.updateGameState(state);
+    return state;
+  }
+
+  updateGameState(state) {
+    if (!state || !state.network) return;
+    
+    state.turn++;
+    
+    state.network.security_level = Math.max(
+      CONFIG.MIN_SECURITY,
+      (state.network.security_level || 5) - CONFIG.SECURITY_DECAY
+    );
+
+    if (state.attacker.attacks && state.attacker.attacks.some(a => a.type === 'DDoS')) {
+      state.network.traffic = networkConfig.traffic_patterns.under_attack;
+    } else {
+      state.network.traffic = networkConfig.traffic_patterns.normal;
+    }
+
+    if (state.currentPlayer === 'attacker') {
+      state.attacker.resources += CONFIG.TURN_RESOURCES.attacker;
+    } else {
+      state.defender.resources += CONFIG.TURN_RESOURCES.defender;
+    }
+
+    this.checkGameEnd(state);
+  }
+
+  checkGameEnd(state) {
+    if (!state || !state.network) return;
+
+    // Security level check
+    if (state.network.security_level <= CONFIG.MIN_SECURITY) {
+      state.gameOver = true;
+      state.winner = 'attacker';
+      return;
+    }
+
+    // Resource exhaustion
+    if (state.attacker.resources <= 0) {
+      state.gameOver = true;
+      state.winner = 'defender';
+      return;
+    }
+
+    // Critical node compromise
+    const criticalNodes = state.network.nodes.filter(n => n.criticality === 'Critical');
+    if (criticalNodes.some(n => n.attacked)) {
+      state.gameOver = true;
+      state.winner = 'attacker';
+      return;
+    }
+
+    // Defense victory condition
+    const allCriticalProtected = criticalNodes.every(n => n.protected);
+    if (allCriticalProtected && state.network.security_level >= 7 && state.turn > 10) {
+      state.gameOver = true;
+      state.winner = 'defender';
+    }
+  }
 }
 
 const ai = new MinimaxAI();
 
-// API Routes
+// API Endpoints
+app.use(express.json());
+app.use(express.static('public'));
 
-// Get attack predictions
-app.get('/attack-predictions', (req, res) => {
-  try {
-    if (gameState.gameOver) {
-      return res.json({ 
-        error: "Game has ended",
-        predictions: []
-      });
-    }
+// Game Initialization
+app.get('/init', (req, res) => {
+  gameState = {
+    turn: 0,
+    attacker: {
+      resources: CONFIG.INITIAL_RESOURCES,
+      lastMove: null,
+      attacks: [],
+      availableAttacks: attackPatterns.map(a => a.id)
+    },
+    defender: {
+      resources: CONFIG.INITIAL_RESOURCES,
+      lastMove: null,
+      defenses: [],
+      availableDefenses: defenseOptions.map(d => d.id)
+    },
+    network: {
+      security_level: 5,
+      nodes: networkConfig.nodes.map(node => ({
+        ...node,
+        protected: false,
+        attacked: false,
+        protections: node.protections || [],
+        vulnerabilities: node.vulnerabilities || []
+      })),
+      traffic: networkConfig.traffic_patterns.normal
+    },
+    gameOver: false,
+    winner: null,
+    currentPlayer: 'attacker'
+  };
 
-    const availableAttacks = attackPatterns.filter(a =>
-      gameState.attacker.resources >= a.cost &&
-      gameState.attacker.availableAttacks.includes(a.id)
-    );
-
-    if (availableAttacks.length === 0) {
-      return res.json({
-        predictions: [],
-        summary: {
-          mostLikely: 'No attacks available',
-          confidence: 'N/A',
-          totalAttacks: attackPredictor.attackHistory.length,
-          recentPattern: 'No available attacks'
-        }
-      });
-    }
-
-    const predictionSummary = attackPredictor.getPredictionSummary(availableAttacks, gameState);
-
-    res.json({
-      ...predictionSummary,
-      gameState: {
-        currentPlayer: gameState.currentPlayer,
-        attackerResources: gameState.attacker.resources,
-        securityLevel: gameState.network.security_level,
-        turn: gameState.turn
-      }
-    });
-  } catch (error) {
-    console.error('Prediction error:', error);
-    res.status(500).json({ 
-      error: "Failed to generate predictions",
-      details: error.message 
-    });
-  }
+  res.json({
+    gameState,
+    attacks: attackPatterns,
+    defenses: defenseOptions,
+    network: networkConfig,
+    config: CONFIG
+  });
 });
 
-// Execute attack
+// Attack Endpoint
 app.post('/attack', (req, res) => {
   try {
     if (gameState.gameOver) {
@@ -461,20 +634,8 @@ app.post('/attack', (req, res) => {
     gameState.attacker.attacks.push(attack);
     gameState.currentPlayer = 'defender';
 
-    // Update attack predictor
-    attackPredictor.updateHistory(attack, gameState);
     ai.updateGameState(gameState);
-
-    // Generate predictions for next possible attacks
-    const availableAttacks = attackPatterns.filter(a =>
-      gameState.attacker.resources >= a.cost &&
-      gameState.attacker.availableAttacks.includes(a.id)
-    );
-
-    let nextPredictions = null;
-    if (availableAttacks.length > 0 && !gameState.gameOver) {
-      nextPredictions = attackPredictor.getPredictionSummary(availableAttacks, gameState);
-    }
+    const winProbability = calculateWinProbability(gameState);
 
     res.json({
       gameState,
@@ -491,7 +652,7 @@ app.post('/attack', (req, res) => {
         max: CONFIG.MAX_SECURITY,
         percent: (gameState.network.security_level / CONFIG.MAX_SECURITY) * 100
       },
-      predictions: nextPredictions
+      winProbability: winProbability
     });
   } catch (err) {
     console.error('Attack error:', err);
@@ -502,99 +663,152 @@ app.post('/attack', (req, res) => {
   }
 });
 
-// Get detailed prediction analysis
-app.get('/prediction-analysis', (req, res) => {
+// Defend Endpoint
+app.post('/defend', (req, res) => {
   try {
-    const availableAttacks = attackPatterns.filter(a =>
-      gameState.attacker.resources >= a.cost &&
-      gameState.attacker.availableAttacks.includes(a.id)
-    );
+    if (gameState.gameOver) {
+      return res.status(400).json({ error: "Game has ended" });
+    }
+    if (gameState.currentPlayer !== 'defender') {
+      return res.status(400).json({ error: "Not defender's turn" });
+    }
 
-    if (availableAttacks.length === 0) {
+    const defense = ai.getBestMove(gameState);
+    
+    if (!defense || !defenseOptions.find(d => d.id === defense.id)) {
+      gameState.currentPlayer = 'attacker';
+      ai.updateGameState(gameState);
       return res.json({
-        error: "No attacks available",
-        analysis: null
+        gameState,
+        defense: null,
+        message: "No valid defense available - turn skipped",
+        securityLevel: gameState.network.security_level.toFixed(2)
       });
     }
 
-    const predictions = attackPredictor.predictNextAttack(availableAttacks, gameState);
-    
-    res.json({
-      detailedAnalysis: predictions.map(pred => ({
-        attack: {
-          id: pred.attack.id,
-          name: pred.attack.name,
-          type: pred.attack.type,
-          cost: pred.attack.cost,
-          successRate: pred.attack.success_rate
-        },
-        probability: Math.round(pred.probability * 100),
-        factors: {
-          transition: Math.round(pred.factors.transition * 100),
-          frequency: Math.round(pred.factors.frequency * 100),
-          resource: Math.round(pred.factors.resource * 100),
-          efficiency: Math.round(pred.factors.efficiency * 100),
-          recency: Math.round(pred.factors.recency * 100),
-          security: Math.round(pred.factors.security * 100)
-        }
-      })),
-      historyStats: {
-        totalAttacks: attackPredictor.attackHistory.length,
-        uniqueTypes: new Set(attackPredictor.attackHistory.map(a => a.type)).size,
-        avgCost: attackPredictor.attackHistory.length > 0 ? 
-          (attackPredictor.attackHistory.reduce((sum, a) => sum + a.cost, 0) / attackPredictor.attackHistory.length).toFixed(1) : 0,
-        mostUsedType: attackPredictor.getMostUsedAttackType()
+    // Ensure defense has required properties
+    defense.security_boost = defense.security_boost || 0;
+    defense.coverage = defense.coverage || [];
+    defense.cost = defense.cost || 0;
+
+    gameState.defender.resources -= defense.cost;
+    gameState.network.security_level = Math.min(
+      CONFIG.MAX_SECURITY,
+      gameState.network.security_level + defense.security_boost
+    );
+
+    gameState.network.nodes.forEach(node => {
+      if (defense.coverage.some(cov => 
+        (node.protections || []).includes(cov))) {
+        node.protected = true;
       }
     });
-  } catch (error) {
-    console.error('Analysis error:', error);
+
+    gameState.defender.lastMove = defense;
+    gameState.defender.defenses.push(defense);
+    gameState.currentPlayer = 'attacker';
+
+    ai.updateGameState(gameState);
+    const winProbability = calculateWinProbability(gameState);
+
+    res.json({
+      gameState,
+      defense: {
+        type: defense.type,
+        name: defense.name,
+        cost: defense.cost,
+        boost: defense.security_boost,
+        coverage: defense.coverage,
+        protectedNodes: gameState.network.nodes
+          .filter(n => defense.coverage.some(c => 
+            (n.protections || []).includes(c)))
+          .map(n => n.name)
+      },
+      analysis: {
+        score: ai.evaluate(gameState),
+        threatsMitigated: defense.effectiveness || {}
+      },
+      securityDisplay: {
+        value: gameState.network.security_level.toFixed(2),
+        max: CONFIG.MAX_SECURITY,
+        percent: (gameState.network.security_level / CONFIG.MAX_SECURITY) * 100
+      },
+      winProbability: winProbability
+    });
+  } catch (err) {
+    console.error('Defense error:', err);
     res.status(500).json({ 
-      error: "Failed to generate analysis",
-      details: error.message 
+      error: "Internal server error",
+      details: err.message 
     });
   }
 });
 
-// Get game state
+// Game State Inspection
 app.get('/game-state', (req, res) => {
-  res.json(gameState);
+  res.json({
+    state: gameState,
+    threats: gameData.threats,
+    network: networkConfig,
+    securityDisplay: {
+      value: gameState.network.security_level.toFixed(2),
+      max: CONFIG.MAX_SECURITY,
+      percent: (gameState.network.security_level / CONFIG.MAX_SECURITY) * 100
+    },
+    analysis: ai.evaluate(gameState)
+  });
 });
 
-// Reset game
-app.post('/reset-game', (req, res) => {
-  gameState = {
-    gameOver: false,
-    currentPlayer: 'attacker',
-    turn: 1,
-    attacker: {
-      resources: CONFIG.INITIAL_ATTACKER_RESOURCES,
-      availableAttacks: ['dos', 'sql', 'phishing', 'malware', 'brute'],
-      attacks: [],
-      lastMove: null
-    },
-    defender: {
-      resources: CONFIG.INITIAL_DEFENDER_RESOURCES,
-      defenses: [],
-      lastMove: null
-    },
-    network: {
-      security_level: CONFIG.MAX_SECURITY,
-      nodes: [
-        { name: 'Web Server', vulnerabilities: ['application', 'network'], protected: false, criticality: 'High' },
-        { name: 'Database', vulnerabilities: ['application', 'system'], protected: false, criticality: 'Critical' },
-        { name: 'User Accounts', vulnerabilities: ['social', 'authentication'], protected: false, criticality: 'Medium' }
-      ]
-    }
-  };
-  
-  attackPredictor.reset();
-  ai.updateGameState(gameState);
-  
-  res.json({ message: 'Game reset successfully', gameState });
+// Win Probability Endpoint
+app.get('/win-probability', (req, res) => {
+  try {
+    const probability = calculateWinProbability(gameState);
+    res.json({
+      probability: probability,
+      gameState: {
+        turn: gameState.turn,
+        security: gameState.network.security_level.toFixed(2),
+        currentPlayer: gameState.currentPlayer,
+        gameOver: gameState.gameOver
+      }
+    });
+  } catch (err) {
+    console.error('Win probability error:', err);
+    res.status(500).json({ 
+      error: "Could not calculate win probability",
+      details: err.message 
+    });
+  }
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`Cybersecurity game server running on port ${PORT}`);
-  console.log(`Attack prediction system initialized`);
+// Start Server
+const PORT = process.env.PORT || 3000;
+const server = app.listen(PORT, () => {
+  console.log(`\n=== CYBER SECURITY MINIMAX SIMULATION ===`);
+  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Attack patterns: ${attackPatterns.length}`);
+  console.log(`Defense options: ${defenseOptions.length}`);
+  console.log(`Network nodes: ${networkConfig.nodes.length}`);
+  console.log(`AI Depth: ${CONFIG.MINIMAX_DEPTH}`);
+  console.log(`Initial resources: ${CONFIG.INITIAL_RESOURCES}\n`);
+});
+
+// Error Handling
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`ERROR: Port ${PORT} is already in use.`);
+    console.log(`1. Kill the process: 'lsof -i :${PORT}' then 'kill <PID>'`);
+    console.log(`2. Use a different port: 'PORT=4000 node server.js'`);
+  } else {
+    console.error('Server error:', err);
+  }
+  process.exit(1);
+});
+
+process.on('SIGINT', () => {
+  console.log('\nShutting down server gracefully...');
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
 });
